@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify
-from model import mock_model
+from model_old import mock_model
 
 app = Flask(__name__)
 

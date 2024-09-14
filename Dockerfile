@@ -13,8 +13,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the rest of the application code into the container
 COPY . .
 
-# Expose port 5000 for the Flask application
+# Expose port 5000 (or any port if needed; optional for running main.py)
 EXPOSE 5000
 
-# Define the command to run the Flask application
-CMD ["python", "server.py"]
+# Define the command to run main.py
+CMD ["python", "main.py"]
