@@ -4,7 +4,7 @@ from model import get_best_places
 app = Flask(__name__)
 
 
-@app.route("/recommendations", methods=["GET"])
+@app.route("/recommendations", methods=["POST"])
 def get_recommendations():
     request_data = request.json
 
