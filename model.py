@@ -209,54 +209,132 @@ def map_activities_to_places(activities, activity_locations, place_similarities)
     return place_activity_map, total_activities, total_places
 
 
-def suggest_additional_places(place_activity_map, cleaned_place_similarities, num_suggestions=5):
+def suggest_additional_places(mapped_activities, cleaned_place_similarities, num_suggestions=5):
     """
-    Suggests additional places if the total number of places is less than num_suggestions.
+    Suggests additional places if the total number of places in mapped_activities is less than num_suggestions.
 
     Parameters:
-    - place_activity_map: The current map of places to activities.
+    - mapped_activities: The current map of places to activities.
     - cleaned_place_similarities: Filtered place similarities data.
     - num_suggestions: The number of total locations to suggest (default is 5).
 
     Returns:
     - final_suggestions: A list of final suggested sublocations, prioritized by uncovered categories.
     """
+    # Start by checking how many unique places are already covered
+    current_places = set(mapped_activities.keys())
+
+    # If we already have 5 or more places, return the current places
+    if len(current_places) >= num_suggestions:
+        return list(current_places)
+
     # Track suggested places and sublocations
-    suggested_places = set()  # Set to keep track of already suggested places
-    covered_sublocations = set()
+    suggested_places = set(current_places)  # Start with the current places
+    covered_places = set(current_places)  # Track main places that are covered
+    covered_sublocations = set()  # Track sublocations already suggested
 
     # Mark sublocations already covered by activities
-    for place in place_activity_map:
+    for place in mapped_activities:
         for similar_place in cleaned_place_similarities.get(place, []):
             covered_sublocations.add(similar_place[0][0])
 
     # List of places that have not yet been covered in the mapping
-    uncovered_places = [place for place in cleaned_place_similarities if place not in place_activity_map]
+    uncovered_places = [place for place in cleaned_place_similarities if place not in mapped_activities]
 
     # Suggest from uncovered categories first
     for place in uncovered_places:
         if len(suggested_places) >= num_suggestions:
             break
-        for sublocation in cleaned_place_similarities[place]:
-            sublocation_name = sublocation[0][0]
-            if sublocation_name not in covered_sublocations and sublocation_name not in suggested_places:
-                suggested_places.add(sublocation_name)
-                break  # Suggest one sublocation per uncovered place
+        if place not in covered_places:  # Suggest from uncovered main places
+            for sublocation in cleaned_place_similarities[place]:
+                sublocation_name = sublocation[0][0]
+                if sublocation_name not in covered_sublocations and place not in covered_places:
+                    suggested_places.add(sublocation_name)  # Add the sublocation or place
+                    covered_places.add(place)  # Mark the main place as covered
+                    covered_sublocations.add(sublocation_name)  # Ensure no duplicate sublocations
+                    break  # Suggest one sublocation per uncovered place
 
-    # If we still need more suggestions after uncovered categories, suggest from the already covered places
+    # If we still need more suggestions after uncovered categories, suggest from already covered places
     if len(suggested_places) < num_suggestions:
         for place, sublocations in cleaned_place_similarities.items():
-            if place in place_activity_map:
+            if place in mapped_activities and place not in covered_places:
                 for sublocation in sublocations:
                     sublocation_name = sublocation[0][0]
-                    if sublocation_name not in covered_sublocations and sublocation_name not in suggested_places:
-                        suggested_places.add(sublocation_name)
-                        break  # Suggest one sublocation from already covered places
+                    if sublocation_name not in covered_sublocations and place not in covered_places:
+                        suggested_places.add(sublocation_name)  # Add the main place or sublocation
+                        covered_places.add(place)  # Mark the main place as covered
+                        covered_sublocations.add(sublocation_name)  # Ensure no duplicate sublocations
+                        break  # Suggest only one sublocation from already covered places
 
             if len(suggested_places) >= num_suggestions:
                 break
 
     return list(suggested_places)[:num_suggestions]  # Return only up to the number of suggestions
+
+
+def fill_places_with_uncovered_activities(suggested_places, mapped_activities, activity_locations, num_suggestions=5):
+    """
+    Fills suggested_places with additional places from activity_locations if there are uncovered activities,
+    until the total number of places reaches num_suggestions (5 by default).
+
+    Parameters:
+    - suggested_places: List of already suggested places.
+    - mapped_activities: The current map of places to activities.
+    - activity_locations: A dictionary mapping activities to lists of location data.
+    - num_suggestions: The number of total places to suggest (default is 5).
+
+    Returns:
+    - final_suggestions: A list of suggested places, filled with uncovered activities if needed.
+    """
+    # Start by checking how many unique places we already have
+    if len(suggested_places) >= num_suggestions:
+        return suggested_places  # No need to add more if we already have enough
+
+    # Identify activities that haven't been covered yet
+    covered_activities = set(activity for activities in mapped_activities.values() for activity in activities)
+    uncovered_activities = [activity for activity in activity_locations if activity not in covered_activities]
+
+    # Suggest additional places for uncovered activities
+    for activity in uncovered_activities:
+        if len(suggested_places) >= num_suggestions:
+            break  # Stop once we have enough suggestions
+        # Find locations for the uncovered activity
+        for location_data in activity_locations[activity]:
+            place_name = location_data[0][0]
+            if place_name not in suggested_places:
+                suggested_places.append(place_name)  # Add the place
+                break  # Only add one place per uncovered activity
+
+    return suggested_places[:num_suggestions]  # Return up to num_suggestions
+
+
+def fill_places_with_similarities(suggested_places, cleaned_place_similarities, num_suggestions=5):
+    """
+    Fills suggested_places with additional places from place_similarities if there are fewer than num_suggestions.
+
+    Parameters:
+    - suggested_places: List of already suggested places.
+    - cleaned_place_similarities: Filtered place similarities data.
+    - num_suggestions: The number of total places to suggest (default is 5).
+
+    Returns:
+    - final_suggestions: A list of suggested places, filled with uncovered activities if needed.
+    """
+    # Track suggested places to avoid duplicates
+    existing_places = set(suggested_places)
+
+    # Go through place_similarities to find additional places
+    for place, sublocations in cleaned_place_similarities.items():
+        if len(suggested_places) >= num_suggestions:
+            break  # Stop once we reach the required number of suggestions
+        for sublocation in sublocations:
+            sublocation_name = sublocation[0][0]
+            if sublocation_name not in existing_places:
+                suggested_places.append(sublocation_name)  # Add the sublocation
+                existing_places.add(sublocation_name)
+                break  # Only add one sublocation per main place
+
+    return suggested_places[:num_suggestions]  # Return up to num_suggestions
 
 
 def get_best_places(activities, destinations):
@@ -267,9 +345,17 @@ def get_best_places(activities, destinations):
 
     cleaned_activity_locations, cleaned_place_similarities = clean_data(activity_locations, place_similarities)
 
-    place_activity_map, total_activities, total_places = map_activities_to_places(activities, cleaned_activity_locations, cleaned_place_similarities)
+    mapped_activities, activities_covered, places_visited = map_activities_to_places(
+        activities,
+        cleaned_activity_locations,
+        cleaned_place_similarities
+    )
 
-    suggested_places = suggest_additional_places(place_activity_map, cleaned_place_similarities)
+    suggested_places = suggest_additional_places(mapped_activities, cleaned_place_similarities)
+
+    suggested_places = fill_places_with_uncovered_activities(suggested_places, mapped_activities, activity_locations)
+
+    suggested_places = fill_places_with_similarities(suggested_places, place_similarities)
 
     return suggested_places
 
